@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CPU Scheduling Simulator</title>
+
+<style>
+:root {
+    --primary: #2c3e50;
+    --secondary: #3498db;
+    --success: #27ae60;
+    --idle: #95a5a6;
+}
+
+body {
+    font-family: Segoe UI, sans-serif;
+    background: #f4f6f7;
+    padding: 20px;
+}
+
+.container {
+    max-width: 950px;
+    margin: auto;
+    background: white;
+    padding: 25px;
+    border-radius: 10px;
+    box-shadow: 0 5px 20px rgba(0,0,0,0.1);
+}
+
+h2 {
+    text-align: center;
+    color: var(--primary);
+}
+
+.controls {
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+    margin-bottom: 15px;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+th, td {
+    border: 1px solid #ddd;
+    padding: 10px;
+    text-align: center;
+}
+
+th {
+    background: var(--primary);
+    color: white;
+}
+
+input {
+    width: 80%;
+    padding: 5px;
+}
+
+button {
+    padding: 8px 15px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: bold;
+}
+
+.add { background: var(--secondary); color: white; }
+.sim { background: var(--success); color: white; width: 100%; margin-top: 10px; }
+
+.gantt-block {
+    padding: 15px;
+    color: white;
+    text-align: center;
+    font-weight: bold;
+}
+
+.process { background: var(--secondary); }
+.idle { background: var(--idle); }
+
+.timeline {
+    display: flex;
+    font-size: 0.85rem;
+    margin-top: 5px;
+}
+
+.summary {
+    margin-top: 15px;
+    padding: 10px;
+    background: #eaf2f8;
+}
+</style>
+</head>
+
+<body>
+
+<div class="container">
+<h2>CPU Scheduling Simulator</h2>
+
+<div class="controls">
+    <select id="algo">
+        <option value="FCFS">FCFS</option>
+        <option value="SJF">SJF (Non-Preemptive)</option>
+    </select>
+    <button class="add" onclick="addRow()">+ Add Process</button>
+</div>
+
+<table id="processTable">
+<thead>
+<tr>
+<th>Process ID</th>
+<th>Arrival Time (AT)</th>
+<th>Burst Time (BT)</th>
+<th>Action</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><input class="pid" value="P1"></td>
+<td><input type="number" class="at" value="0" min="0"></td>
+<td><input type="number" class="bt" value="5" min="1"></td>
+<td><button onclick="this.parentElement.parentElement.remove()">✖</button></td>
+</tr>
+</tbody>
+</table>
+
+<button class="sim" onclick="simulate()">Simulate</button>
+
+<div id="resultArea" style="display:none;">
+<h3>Gantt Chart</h3>
+<div id="ganttChart"></div>
+
+<h3>Results</h3>
+<div id="statsTable"></div>
+
+<div id="avgResults" class="summary"></div>
+</div>
+</div>
+
+<script>
+function addRow() {
+    const tbody = document.querySelector("#processTable tbody");
+    const id = "P" + (tbody.rows.length + 1);
+
+    const row = tbody.insertRow();
+    row.innerHTML = `
+        <td><input class="pid" value="${id}"></td>
+        <td><input type="number" class="at" value="0" min="0"></td>
+        <td><input type="number" class="bt" value="1" min="1"></td>
+        <td><button onclick="this.parentElement.parentElement.remove()">✖</button></td>
+    `;
+}
+
+function simulate() {
+    const algo = document.getElementById("algo").value;
+    const rows = document.querySelectorAll("#processTable tbody tr");
+
+    let processes = [];
+
+    for (let i = 0; i < rows.length; i++) {
+        const pid = rows[i].querySelector(".pid").value.trim();
+        const at = parseInt(rows[i].querySelector(".at").value);
+        const bt = parseInt(rows[i].querySelector(".bt").value);
+
+        if (!pid) return alert("Invalid Process ID");
+        if (isNaN(at) || at < 0) return alert("Invalid Arrival Time");
+        if (isNaN(bt) || bt <= 0) return alert("Invalid Burst Time");
+
+        processes.push({ id: pid, at, bt, originalIndex: i });
+    }
+
+    if (processes.length === 0) return alert("Add processes");
+
+    if (algo === "FCFS") {
+        processes.sort((a,b) => a.at - b.at || a.originalIndex - b.originalIndex);
+    }
+
+    let time = 0;
+    let completed = [];
+    let gantt = [];
+    let ready = [...processes];
+
+    while (ready.length > 0) {
+        let available = ready.filter(p => p.at <= time);
+
+        if (available.length === 0) {
+            let nextArrival = Math.min(...ready.map(p => p.at));
+            gantt.push({ id: "Idle", start: time, end: nextArrival });
+            time = nextArrival;
+            continue;
+        }
+
+        let p;
+
+        if (algo === "SJF") {
+            available.sort((a,b) =>
+                a.bt - b.bt ||
+                a.at - b.at ||
+                a.originalIndex - b.originalIndex
+            );
+        }
+
+        p = available[0];
+
+        let start = Math.max(time, p.at);
+        let ct = start + p.bt;
+
+        let tat = ct - p.at;
+        let wt = tat - p.bt;
+
+        completed.push({ ...p, start, ct, tat, wt });
+        gantt.push({ id: p.id, start, end: ct });
+
+        time = ct;
+        ready = ready.filter(x => x !== p);
+    }
+
+    displayResults(completed, gantt);
+}
+
+function displayResults(data, gantt) {
+    document.getElementById("resultArea").style.display = "block";
+
+    const chart = document.getElementById("ganttChart");
+    chart.innerHTML = "";
+
+    const row = document.createElement("div");
+    row.style.display = "flex";
+
+    gantt.forEach(block => {
+        const div = document.createElement("div");
+        div.className = `gantt-block ${block.id === "Idle" ? "idle" : "process"}`;
+        div.style.flexGrow = block.end - block.start;
+        div.innerText = block.id;
+        row.appendChild(div);
+    });
+
+    const timeline = document.createElement("div");
+    timeline.className = "timeline";
+
+    gantt.forEach(block => {
+        const t = document.createElement("div");
+        t.style.flexGrow = block.end - block.start;
+        t.innerText = block.start;
+        timeline.appendChild(t);
+    });
+
+    const end = document.createElement("div");
+    end.style.textAlign = "right";
+    end.innerText = gantt[gantt.length - 1].end;
+
+    chart.appendChild(row);
+    chart.appendChild(timeline);
+    chart.appendChild(end);
+
+    let totalWT = 0, totalTAT = 0;
+
+    let html = `<table>
+        <tr>
+            <th>PID</th>
+            <th>AT</th>
+            <th>BT</th>
+            <th>Completion Time (CT)</th>
+            <th>Turnaround Time (TAT)</th>
+            <th>Waiting Time (WT)</th>
+        </tr>`;
+
+    data.forEach(p => {
+        html += `<tr>
+            <td>${p.id}</td>
+            <td>${p.at}</td>
+            <td>${p.bt}</td>
+            <td>${p.ct}</td>
+            <td>${p.tat}</td>
+            <td>${p.wt}</td>
+        </tr>`;
+
+        totalWT += p.wt;
+        totalTAT += p.tat;
+    });
+
+    html += `</table>`;
+
+    document.getElementById("statsTable").innerHTML = html;
+
+    document.getElementById("avgResults").innerHTML = `
+        <strong>Average Waiting Time:</strong> ${(totalWT / data.length).toFixed(2)} <br>
+        <strong>Average Turnaround Time:</strong> ${(totalTAT / data.length).toFixed(2)}
+    `;
+}
+</script>
+
+</body>
+</html>
